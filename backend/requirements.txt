@@ -1,0 +1,11 @@
+langchain
+langchain-ollama
+langgraph
+langgraph-checkpoint-sqlite
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+httpx
+tenacity
+argon2-cffi>=23.1
