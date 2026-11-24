@@ -200,6 +200,31 @@ class TripStore:
                 )
                 """,
             )
+            # Phase 3 — itinerary storage (additive, backward-compatible)
+            self._execute(
+                connection,
+                """
+                CREATE TABLE IF NOT EXISTS trip_itineraries (
+                    trip_id TEXT PRIMARY KEY,
+                    itinerary_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+            )
+            # Phase 7 — copilot conversation history (additive)
+            self._execute(
+                connection,
+                """
+                CREATE TABLE IF NOT EXISTS copilot_conversations (
+                    turn_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trip_id TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """,
+            )
 
     @staticmethod
     def _save_preferences(
@@ -526,3 +551,107 @@ class TripStore:
                 raise CorruptPersistenceError from error
             conversation.append({"role": role, "content": content})
         return conversation
+
+    # ── Phase 3: Itinerary persistence ──────────────────────────────────────
+
+    def save_itinerary_for_owner(
+        self,
+        trip_id: str,
+        itinerary_json: str,
+        owner_id: str,
+    ) -> None:
+        """Upsert the itinerary JSON for an owned trip."""
+        with self.connect() as connection:
+            self._assert_trip_owner(connection, trip_id, owner_id)
+            self._execute(
+                connection,
+                """
+                INSERT INTO trip_itineraries (trip_id, itinerary_json, created_at, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT(trip_id) DO UPDATE SET
+                    itinerary_json = excluded.itinerary_json,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (trip_id, itinerary_json),
+            )
+
+    def get_itinerary_for_owner(
+        self,
+        trip_id: str,
+        owner_id: str,
+    ) -> str | None:
+        """Return raw itinerary JSON for an owned trip, or None if not saved."""
+        with self.connect() as connection:
+            self._assert_trip_owner(connection, trip_id, owner_id)
+            row = self._fetchone(
+                connection,
+                "SELECT itinerary_json FROM trip_itineraries WHERE trip_id = ?",
+                (trip_id,),
+            )
+        if row is None:
+            return None
+        return str(row["itinerary_json"])
+
+    # ── Phase 7: Copilot conversation persistence ────────────────────────────
+
+    def append_copilot_turn(
+        self,
+        trip_id: str,
+        user_message: str,
+        assistant_message: str,
+        owner_id: str,
+    ) -> None:
+        """Persist one user/assistant exchange to the copilot conversation."""
+        with self.connect() as connection:
+            self._assert_trip_owner(connection, trip_id, owner_id)
+            self._execute_many(
+                connection,
+                "INSERT INTO copilot_conversations (trip_id, role, content) VALUES (?, ?, ?)",
+                [
+                    (trip_id, "user", user_message),
+                    (trip_id, "assistant", assistant_message),
+                ],
+            )
+
+    def get_copilot_history_for_owner(
+        self,
+        trip_id: str,
+        owner_id: str,
+        limit: int = 40,
+    ) -> list[dict[str, str]]:
+        """Return the most recent copilot conversation turns for a trip."""
+        with self.connect() as connection:
+            self._assert_trip_owner(connection, trip_id, owner_id)
+            rows = self._fetchall(
+                connection,
+                """
+                SELECT role, content FROM copilot_conversations
+                WHERE trip_id = ?
+                ORDER BY turn_id DESC
+                LIMIT ?
+                """,
+                (trip_id, max(1, min(limit, 100))),
+            )
+        # Reverse so oldest turn is first
+        result = []
+        for row in reversed(rows):
+            role = row["role"]
+            content = row["content"]
+            if role not in {"user", "assistant"} or not isinstance(content, str):
+                raise CorruptPersistenceError
+            result.append({"role": role, "content": content})
+        return result
+
+    def clear_copilot_history_for_owner(
+        self,
+        trip_id: str,
+        owner_id: str,
+    ) -> None:
+        """Delete all copilot turns for a trip (user-initiated reset only)."""
+        with self.connect() as connection:
+            self._assert_trip_owner(connection, trip_id, owner_id)
+            self._execute(
+                connection,
+                "DELETE FROM copilot_conversations WHERE trip_id = ?",
+                (trip_id,),
+            )

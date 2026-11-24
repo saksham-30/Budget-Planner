@@ -257,3 +257,312 @@ class RatesResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Itinerary Builder — Phase 3
+# ---------------------------------------------------------------------------
+
+
+class ItineraryConfig(BaseModel):
+    """User-supplied trip configuration for the AI itinerary builder."""
+    destination: str = Field(min_length=2, max_length=120)
+    origin: Optional[str] = Field(default=None, max_length=120)
+    start_date: str  # ISO date string
+    end_date: str    # ISO date string
+    travelers: int = Field(ge=1, le=20)
+    budget: float = Field(gt=0)
+    currency: str = Field(min_length=3, max_length=3)
+    pace: str = Field(default="balanced")           # relaxed | balanced | packed
+    budget_style: str = Field(default="moderate")   # budget | moderate | luxury
+    accommodation_preference: str = Field(default="hotel")
+    interests: list[str] = Field(default_factory=list)
+    special_requirements: Optional[str] = Field(default=None, max_length=500)
+    extra_instructions: Optional[str] = Field(default=None, max_length=1000)
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_date_format(cls, v: str) -> str:
+        from datetime import date as _date
+        try:
+            _date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError(f"Invalid date format: {v}") from exc
+        return v
+
+    @field_validator("pace")
+    @classmethod
+    def validate_pace(cls, v: str) -> str:
+        if v not in ("relaxed", "balanced", "packed"):
+            return "balanced"
+        return v
+
+    @field_validator("budget_style")
+    @classmethod
+    def validate_budget_style(cls, v: str) -> str:
+        if v not in ("budget", "moderate", "luxury"):
+            return "moderate"
+        return v
+
+    @field_validator("currency")
+    @classmethod
+    def validate_currency(cls, v: str) -> str:
+        normalized = v.strip().upper()
+        if normalized not in {"INR", "EUR", "USD", "GBP"}:
+            raise ValueError("currency must be one of INR, EUR, USD, GBP")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "ItineraryConfig":
+        from datetime import date as _date
+        s = _date.fromisoformat(self.start_date)
+        e = _date.fromisoformat(self.end_date)
+        if e < s:
+            raise ValueError("end_date must be on or after start_date")
+        if (e - s).days > 30:
+            raise ValueError("Trip duration cannot exceed 30 days")
+        return self
+
+
+class ItineraryActivity(BaseModel):
+    """A single activity in the daily itinerary."""
+    id: str
+    time: str = "09:00"           # HH:MM
+    duration_minutes: int = Field(default=60, ge=5, le=720)
+    name: str
+    description: str = ""
+    location: str = ""
+    category: str = "sightseeing"
+    estimated_cost_per_person: float = Field(default=0.0, ge=0)
+    currency: str = "INR"
+    notes: str = ""
+    is_break: bool = False
+    is_optional: bool = False
+    is_edited: bool = False        # set to True when user manually edits
+
+
+class ItineraryPlanDay(BaseModel):
+    """One day in the AI-generated itinerary (Phase 3 builder)."""
+    day_number: int = Field(ge=1)
+    date: str                      # ISO date string
+    title: str = ""
+    description: str = ""
+    activities: list[ItineraryActivity] = Field(default_factory=list)
+
+
+class ItineraryBudget(BaseModel):
+    """Budget breakdown for the full trip."""
+    accommodation_total: float = Field(default=0.0, ge=0)
+    food_total: float = Field(default=0.0, ge=0)
+    transport_total: float = Field(default=0.0, ge=0)
+    activities_total: float = Field(default=0.0, ge=0)
+    miscellaneous_total: float = Field(default=0.0, ge=0)
+    grand_total: float = Field(default=0.0, ge=0)
+    per_person_total: float = Field(default=0.0, ge=0)
+    currency: str = "INR"
+    daily_average: float = Field(default=0.0, ge=0)
+    budget_remaining: float = 0.0  # can be negative
+    is_over_budget: bool = False
+    notes: str = ""
+
+
+class ItineraryDocument(BaseModel):
+    """Complete itinerary produced by the AI builder."""
+    id: str
+    config: ItineraryConfig
+    summary: str = ""
+    daily_plans: list[ItineraryPlanDay] = Field(default_factory=list)
+    budget_breakdown: ItineraryBudget = Field(default_factory=ItineraryBudget)
+    is_ai_generated: bool = True
+    generation_notes: str = ""
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ItineraryGenerateRequest(BaseModel):
+    """Request body for POST /api/itinerary/generate."""
+    config: ItineraryConfig
+
+
+class ItineraryModifyRequest(BaseModel):
+    """Request body for POST /api/trips/{trip_id}/itinerary/modify."""
+    modification_request: str = Field(min_length=1, max_length=2000)
+    target_day: Optional[int] = Field(default=None, ge=1)
+    # Optional: pass the current in-memory itinerary so modification works
+    # before the first save.  If omitted the endpoint loads from the database.
+    current_itinerary: Optional["ItineraryDocument"] = None
+    # Optional: weather, feasibility and POI context to include in the AI prompt.
+    # Keeps the prompt grounded in real data rather than AI assumptions.
+    intelligence_context: Optional[str] = Field(default=None, max_length=4000)
+
+    @field_validator("modification_request")
+    @classmethod
+    def validate_request_text(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("modification_request must not be blank")
+        return v
+
+
+class ItinerarySaveRequest(BaseModel):
+    """Request body for PUT /api/trips/{trip_id}/itinerary."""
+    itinerary: ItineraryDocument
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Weather / POI / Feasibility
+# ---------------------------------------------------------------------------
+
+
+class DayWeatherOut(BaseModel):
+    """Serialisable version of weather.DayWeather."""
+    date: str
+    temp_min: Optional[float] = None
+    temp_max: Optional[float] = None
+    precipitation_mm: Optional[float] = None
+    precipitation_probability: Optional[int] = None
+    weather_code: Optional[int] = None
+    weather_label: str = ""
+    is_rain_likely: bool = False
+    wind_speed_max: Optional[float] = None
+    source: str = "UNAVAILABLE"
+    is_suitable_outdoor: bool = True
+
+
+class WeatherResponseOut(BaseModel):
+    destination: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    timezone: str = "UTC"
+    days: list[DayWeatherOut] = Field(default_factory=list)
+    source: str = "UNAVAILABLE"
+    fetched_at: Optional[str] = None
+    forecast_generated_at: Optional[str] = None
+    attribution: str = ""
+    notes: str = ""
+
+
+class PoiResultOut(BaseModel):
+    name: str
+    category: str = ""
+    osm_type: str = "node"
+    osm_id: int = 0
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    source: str = "OSM"
+    wikipedia: Optional[str] = None
+    website: Optional[str] = None
+    description: Optional[str] = None
+
+
+class PoiResponseOut(BaseModel):
+    destination: str
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    pois: list[PoiResultOut] = Field(default_factory=list)
+    source: str = "UNAVAILABLE"
+    attribution: str = ""
+    fetched_at: Optional[str] = None
+    notes: str = ""
+
+
+class FeasibilityIssueOut(BaseModel):
+    severity: str              # INFO | WARNING | CRITICAL
+    day_number: Optional[int] = None
+    activity_id: Optional[str] = None
+    code: str = ""
+    message: str = ""
+    suggestion: str = ""
+
+
+class FeasibilityResponseOut(BaseModel):
+    issues: list[FeasibilityIssueOut] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
+    analysed_days: int = 0
+
+
+class FeasibilityRequest(BaseModel):
+    """Request body for POST /api/itinerary/feasibility."""
+    itinerary: ItineraryDocument
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Logistics
+# ---------------------------------------------------------------------------
+
+
+class FlightLinksOut(BaseModel):
+    google_flights: str
+    skyscanner: str
+    rome2rio: str
+    origin: str
+    destination: str
+    depart_date: str
+    return_date: Optional[str] = None
+    adults: int
+    airport_code: Optional[str] = None
+    notes: str = ""
+
+
+class AccommodationLinksOut(BaseModel):
+    booking_com: str
+    airbnb: str
+    hostelworld: Optional[str] = None
+    destination: str
+    checkin: str
+    checkout: str
+    adults: int
+    budget_style: str = "moderate"
+    notes: str = ""
+
+
+class TransportGuidanceOut(BaseModel):
+    destination: str
+    airport_transfer: str = ""
+    local_transport: str = ""
+    public_transport: str = ""
+    rome2rio_url: str = ""
+    notes: str = ""
+    source: str = "STATIC"
+
+
+class LogisticsResponseOut(BaseModel):
+    destination: str
+    flights: FlightLinksOut
+    accommodation: AccommodationLinksOut
+    transport: TransportGuidanceOut
+    disclaimer: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — Copilot
+# ---------------------------------------------------------------------------
+
+
+class CopilotTurn(BaseModel):
+    role: str                    # "user" | "assistant"
+    content: str
+
+
+class CopilotRequest(BaseModel):
+    """Request body for POST /api/trips/{trip_id}/copilot."""
+    message: str = Field(min_length=1, max_length=2000)
+    # Optional context snapshots — if supplied, used to build the system prompt.
+    # If omitted, the backend falls back to what's stored (preferences + itinerary).
+    weather_context: Optional[dict[str, Any]] = None
+    feasibility_context: Optional[dict[str, Any]] = None
+    logistics_context: Optional[dict[str, Any]] = None
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("message must not be blank")
+        return v
+
+
+class CopilotResponse(BaseModel):
+    reply: str
+    suggests_modification: bool = False
+    history: list[CopilotTurn] = Field(default_factory=list)

@@ -534,7 +534,7 @@ function TraceTab({ plan }) {
   )
 }
 
-export default function TripPlanningPanel() {
+export default function TripPlanningPanel({ prefillDestination }) {
   const threadRef = useRef(null)
   const requestLifecycleRef = useRef(null)
   if (threadRef.current === null) {
@@ -567,6 +567,12 @@ export default function TripPlanningPanel() {
   const requestLifecycle = requestLifecycleRef.current
 
   useEffect(() => () => requestLifecycle.abort(), [requestLifecycle])
+
+  useEffect(() => {
+    if (prefillDestination) {
+      setPreferences(prev => ({ ...prev, destination: prefillDestination }))
+    }
+  }, [prefillDestination])
 
   const refreshRecentTrips = useCallback(async () => {
     try {
@@ -1029,6 +1035,11 @@ export default function TripPlanningPanel() {
       )}
 
       <form className="planner-form" onSubmit={submitPlan} noValidate>
+        <ol className="planner-flow" aria-label="Trip planning steps">
+          <li><span>01</span><strong>Trip basics</strong><small>Destination &amp; dates</small></li>
+          <li><span>02</span><strong>Set your budget</strong><small>Spend &amp; travel style</small></li>
+          <li><span>03</span><strong>Make it yours</strong><small>Preferences &amp; constraints</small></li>
+        </ol>
         <div className="prefs-grid">
           <section className="form-card">
             <header className="form-card-head">
@@ -1175,6 +1186,11 @@ export default function TripPlanningPanel() {
         </div>
 
         <div className="composer">
+          <div className="composer-intro">
+            <span className="composer-step">Your trip at a glance</span>
+            <strong>Ready to build your plan?</strong>
+            <span>Check the summary, add a note if you like, then let the planner compare options.</span>
+          </div>
           <div className="composer-summary">
             <span className="composer-fact">
               <PinIcon width={13} height={13} /> {preferences.destination}

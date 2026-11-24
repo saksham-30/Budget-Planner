@@ -30,3 +30,6 @@ dist/
 
 # Runtime exchange-rate cache
 backend/data/exchange_rates.json
+
+# Runtime database (contains local auth credentials — never commit)
+backend/data/travel_planner.sqlite3

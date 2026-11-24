@@ -19,6 +19,9 @@ export default function ResultCard({ result }) {
   const isFeasible = feasible === true
   const isNotFeasible = feasible === false
   const isUnknown = feasible == null
+  const budgetPercent = Number.isFinite(total_cost) && Number.isFinite(budget) && budget > 0
+    ? Math.round((total_cost / budget) * 100)
+    : null
 
   return (
     <article className="result-card" id="result-card">
@@ -72,6 +75,29 @@ export default function ResultCard({ result }) {
           </span>
         </div>
       </div>
+
+      {budgetPercent != null && (
+        <div className={`result-budget-progress${isNotFeasible ? ' over-budget' : ''}`}>
+          <div className="result-budget-progress-head">
+            <span>Budget used</span>
+            <strong>{budgetPercent}%</strong>
+          </div>
+          <div
+            className="result-budget-progress-track"
+            role="progressbar"
+            aria-label="Trip cost as a share of budget"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow={Math.min(budgetPercent, 100)}
+          >
+            <span style={{ width: `${Math.min(Math.max(budgetPercent, 0), 100)}%` }} />
+          </div>
+          <div className="result-budget-progress-foot">
+            <span>{fmt(total_cost, currency)} trip estimate</span>
+            <span>{isNotFeasible ? `${fmt(result.overage, currency)} over` : `${fmt(result.remaining, currency)} remaining`}</span>
+          </div>
+        </div>
+      )}
 
       <div className="result-answer" id="result-answer">
         <span className="result-answer-icon" aria-hidden="true">

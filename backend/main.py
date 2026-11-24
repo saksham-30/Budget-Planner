@@ -27,15 +27,33 @@ from .config import CORS_ORIGINS, FX_ENABLED, OLLAMA_HOST, OLLAMA_MODEL
 from .models import (
     AnalyzeRequest,
     AnalyzeResponse,
+    AccommodationLinksOut,
+    CopilotRequest,
+    CopilotResponse,
+    CopilotTurn,
+    DayWeatherOut,
     ErrorResponse,
+    FeasibilityIssueOut,
+    FeasibilityRequest,
+    FeasibilityResponseOut,
+    FlightLinksOut,
     HealthResponse,
+    ItineraryDocument,
+    ItineraryGenerateRequest,
+    ItineraryModifyRequest,
+    ItinerarySaveRequest,
+    LogisticsResponseOut,
+    PoiResponseOut,
+    PoiResultOut,
     RateInfo,
     RatesResponse,
     TraceEvent,
+    TransportGuidanceOut,
     TripPlanRequest,
     TripPlanResponse,
     TripPreferences,
     TripSummary,
+    WeatherResponseOut,
 )
 from .fallback import reconcile_agent_result
 from .tracing import build_trace, extract_structured_data
@@ -569,6 +587,477 @@ async def analyze_stream(request: AnalyzeRequest):
         yield "data: [DONE]\n\n"
 
     return ClosingStreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Itinerary Builder — Phase 3
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/itinerary/generate", response_model=ItineraryDocument)
+async def generate_itinerary_endpoint(
+    request: ItineraryGenerateRequest,
+    principal: LocalPrincipal = Depends(require_csrf),
+):
+    """
+    Generate an AI itinerary from a trip configuration.
+    Does NOT save automatically — use PUT /api/trips/{trip_id}/itinerary to persist.
+    """
+    reachable, available = await _ollama_status()
+    if not reachable:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama is not reachable at {OLLAMA_HOST}. Run: ollama serve",
+        )
+    if not available:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Model '{OLLAMA_MODEL}' is not pulled. Run: ollama pull {OLLAMA_MODEL}",
+        )
+
+    try:
+        from .itinerary import generate_itinerary
+        doc = await run_in_threadpool(generate_itinerary, request.config)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Itinerary generation failed")
+        raise HTTPException(status_code=500, detail="Itinerary generation failed.") from exc
+
+    return doc
+
+
+@app.post("/api/trips/{trip_id}/itinerary/modify", response_model=ItineraryDocument)
+async def modify_itinerary_endpoint(
+    trip_id: str,
+    request: ItineraryModifyRequest,
+    principal: LocalPrincipal = Depends(require_csrf),
+):
+    """
+    Apply a natural-language modification to the saved itinerary.
+    Returns a PREVIEW — does not save automatically.
+    If current_itinerary is provided in the request body it is used directly
+    (allowing modification before the first save).
+    """
+    if not trip_id.strip() or len(trip_id) > 100:
+        raise HTTPException(status_code=422, detail="trip_id must contain 1 to 100 characters.")
+
+    # Resolve the current itinerary: prefer in-request body, fall back to DB
+    if request.current_itinerary is not None:
+        current = request.current_itinerary
+    else:
+        store = TripStore()
+        raw = store.get_itinerary_for_owner(trip_id, principal.owner_id)
+        if raw is None:
+            raise HTTPException(status_code=404, detail="No saved itinerary for this trip.")
+        import json as _json
+        from .models import ItineraryDocument as _ItinDoc
+        try:
+            current = _ItinDoc.model_validate(_json.loads(raw))
+        except Exception as exc:
+            logger.warning("Corrupt itinerary data for trip %s: %s", trip_id, exc)
+            raise HTTPException(status_code=500, detail="Stored itinerary data is invalid.") from exc
+
+    reachable, available = await _ollama_status()
+    if not reachable or not available:
+        raise HTTPException(
+            status_code=503,
+            detail="Ollama is unavailable. Run: ollama serve",
+        )
+
+    try:
+        from .itinerary import modify_itinerary
+        preview = await run_in_threadpool(
+            modify_itinerary, current.config, current, request
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Itinerary modification failed for trip %s", trip_id)
+        raise HTTPException(status_code=500, detail="Itinerary modification failed.") from exc
+
+    return preview
+
+
+@app.put("/api/trips/{trip_id}/itinerary", response_model=ItineraryDocument)
+async def save_itinerary_endpoint(
+    trip_id: str,
+    request: ItinerarySaveRequest,
+    principal: LocalPrincipal = Depends(require_csrf),
+):
+    """Save (or overwrite) the itinerary for a trip."""
+    if not trip_id.strip() or len(trip_id) > 100:
+        raise HTTPException(status_code=422, detail="trip_id must contain 1 to 100 characters.")
+
+    store = TripStore()
+    # Ensure trip exists and is owned before saving
+    if store.get_preferences_for_owner(trip_id, principal.owner_id) is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Save trip preferences before saving an itinerary.",
+        )
+
+    import json as _json
+    from datetime import datetime, timezone
+    doc = request.itinerary
+    doc = doc.model_copy(
+        update={"updated_at": datetime.now(timezone.utc).isoformat()}
+    )
+    store.save_itinerary_for_owner(
+        trip_id, doc.model_dump_json(), principal.owner_id
+    )
+    return doc
+
+
+@app.get("/api/trips/{trip_id}/itinerary", response_model=ItineraryDocument)
+async def get_itinerary_endpoint(
+    trip_id: str,
+    principal: LocalPrincipal = Depends(require_local_owner),
+):
+    """Retrieve the saved itinerary for a trip."""
+    if not trip_id.strip() or len(trip_id) > 100:
+        raise HTTPException(status_code=422, detail="trip_id must contain 1 to 100 characters.")
+
+    store = TripStore()
+    raw = store.get_itinerary_for_owner(trip_id, principal.owner_id)
+    if raw is None:
+        raise HTTPException(status_code=404, detail="No saved itinerary for this trip.")
+
+    import json as _json
+    from .models import ItineraryDocument as _ItinDoc
+    try:
+        return _ItinDoc.model_validate(_json.loads(raw))
+    except Exception as exc:
+        logger.warning("Corrupt itinerary data for trip %s: %s", trip_id, exc)
+        raise HTTPException(status_code=500, detail="Stored itinerary data is invalid.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — Weather / POI / Feasibility
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/weather/{destination}", response_model=WeatherResponseOut)
+async def get_weather_endpoint(
+    destination: str,
+    start_date: str,
+    end_date: str,
+    _principal: LocalPrincipal = Depends(require_local_owner),
+):
+    """
+    Return weather forecast or climatology for a destination and date range.
+    Uses Open-Meteo (no key required, CC BY 4.0) with in-process cache.
+    Falls back to long-run monthly averages when outside the 16-day window.
+    """
+    from datetime import date as _date
+    from .weather import get_weather
+
+    try:
+        sd = _date.fromisoformat(start_date)
+        ed = _date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="start_date and end_date must be ISO dates.") from exc
+
+    if ed < sd:
+        raise HTTPException(status_code=422, detail="end_date must be on or after start_date.")
+
+    try:
+        result = await run_in_threadpool(get_weather, destination, sd, ed)
+        # Convert dataclass to Pydantic response
+        return WeatherResponseOut(
+            destination=result.destination,
+            latitude=result.latitude,
+            longitude=result.longitude,
+            timezone=result.timezone,
+            days=[DayWeatherOut(**{
+                "date": d.date,
+                "temp_min": d.temp_min,
+                "temp_max": d.temp_max,
+                "precipitation_mm": d.precipitation_mm,
+                "precipitation_probability": d.precipitation_probability,
+                "weather_code": d.weather_code,
+                "weather_label": d.weather_label,
+                "is_rain_likely": d.is_rain_likely,
+                "wind_speed_max": d.wind_speed_max,
+                "source": d.source,
+                "is_suitable_outdoor": d.is_suitable_outdoor,
+            }) for d in result.days],
+            source=result.source,
+            fetched_at=result.fetched_at,
+            forecast_generated_at=result.forecast_generated_at,
+            attribution=result.attribution,
+            notes=result.notes,
+        )
+    except Exception as exc:
+        logger.exception("Weather endpoint failed for %s", destination)
+        raise HTTPException(status_code=502, detail="Weather data could not be retrieved.") from exc
+
+
+@app.get("/api/poi/{destination}", response_model=PoiResponseOut)
+async def get_poi_endpoint(
+    destination: str,
+    _principal: LocalPrincipal = Depends(require_local_owner),
+):
+    """
+    Return real POIs near a destination using OpenStreetMap / Overpass API.
+    Falls back to bundled attraction list when unavailable.
+    Attribution: Data © OpenStreetMap contributors, ODbL 1.0.
+    """
+    from .poi import get_pois
+
+    try:
+        result = await run_in_threadpool(get_pois, destination)
+        return PoiResponseOut(
+            destination=result.destination,
+            latitude=result.latitude,
+            longitude=result.longitude,
+            pois=[PoiResultOut(
+                name=p.name,
+                category=p.category,
+                osm_type=p.osm_type,
+                osm_id=p.osm_id,
+                latitude=p.latitude,
+                longitude=p.longitude,
+                source=p.source,
+                wikipedia=p.wikipedia,
+                website=p.website,
+                description=p.description,
+            ) for p in result.pois],
+            source=result.source,
+            attribution=result.attribution,
+            fetched_at=result.fetched_at,
+            notes=result.notes,
+        )
+    except Exception as exc:
+        logger.exception("POI endpoint failed for %s", destination)
+        raise HTTPException(status_code=502, detail="POI data could not be retrieved.") from exc
+
+
+@app.post("/api/itinerary/feasibility", response_model=FeasibilityResponseOut)
+async def feasibility_endpoint(
+    request: FeasibilityRequest,
+    _principal: LocalPrincipal = Depends(require_local_owner),
+):
+    """
+    Analyse an itinerary for schedule conflicts, missing breaks, budget overruns, etc.
+    Returns issues with severity levels and improvement suggestions.
+    Deterministic — no AI or external calls.
+    """
+    from .feasibility import analyse, summarise
+
+    try:
+        issues = analyse(request.itinerary)
+        summary = summarise(issues)
+        return FeasibilityResponseOut(
+            issues=[FeasibilityIssueOut(
+                severity=i.severity,
+                day_number=i.day_number,
+                activity_id=i.activity_id,
+                code=i.code,
+                message=i.message,
+                suggestion=i.suggestion,
+            ) for i in issues],
+            summary=summary,
+            analysed_days=len(request.itinerary.daily_plans),
+        )
+    except Exception as exc:
+        logger.exception("Feasibility analysis failed")
+        raise HTTPException(status_code=500, detail="Feasibility analysis failed.") from exc
+
+
+@app.get("/api/logistics/{destination}", response_model=LogisticsResponseOut)
+async def get_logistics_endpoint(
+    destination: str,
+    origin: str = "",
+    start_date: str = "",
+    end_date: str = "",
+    travelers: int = 1,
+    budget_style: str = "moderate",
+    accommodation_preference: str = "hotel",
+    _principal: LocalPrincipal = Depends(require_local_owner),
+):
+    """
+    Return parameterised flight search links, accommodation search links,
+    and static local transport guidance for a destination.
+
+    No live API calls. No bookings. All links open third-party search pages.
+    """
+    if travelers < 1 or travelers > 20:
+        raise HTTPException(status_code=422, detail="travelers must be between 1 and 20.")
+    if budget_style not in ("budget", "moderate", "luxury"):
+        budget_style = "moderate"
+
+    from .logistics import build_logistics
+
+    try:
+        result = await run_in_threadpool(
+            build_logistics,
+            destination,
+            origin,
+            start_date,
+            end_date,
+            travelers,
+            budget_style,
+            accommodation_preference,
+        )
+        return LogisticsResponseOut(
+            destination=result.destination,
+            flights=FlightLinksOut(
+                google_flights=result.flights.google_flights,
+                skyscanner=result.flights.skyscanner,
+                rome2rio=result.flights.rome2rio,
+                origin=result.flights.origin,
+                destination=result.flights.destination,
+                depart_date=result.flights.depart_date,
+                return_date=result.flights.return_date,
+                adults=result.flights.adults,
+                airport_code=result.flights.airport_code,
+                notes=result.flights.notes,
+            ),
+            accommodation=AccommodationLinksOut(
+                booking_com=result.accommodation.booking_com,
+                airbnb=result.accommodation.airbnb,
+                hostelworld=result.accommodation.hostelworld,
+                destination=result.accommodation.destination,
+                checkin=result.accommodation.checkin,
+                checkout=result.accommodation.checkout,
+                adults=result.accommodation.adults,
+                budget_style=result.accommodation.budget_style,
+                notes=result.accommodation.notes,
+            ),
+            transport=TransportGuidanceOut(
+                destination=result.transport.destination,
+                airport_transfer=result.transport.airport_transfer,
+                local_transport=result.transport.local_transport,
+                public_transport=result.transport.public_transport,
+                rome2rio_url=result.transport.rome2rio_url,
+                notes=result.transport.notes,
+                source=result.transport.source,
+            ),
+            disclaimer=result.disclaimer,
+        )
+    except Exception as exc:
+        logger.exception("Logistics endpoint failed for %s", destination)
+        raise HTTPException(status_code=500, detail="Logistics data could not be built.") from exc
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — AI Travel Copilot
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/trips/{trip_id}/copilot", response_model=CopilotResponse)
+async def copilot_chat(
+    trip_id: str,
+    request: CopilotRequest,
+    principal: LocalPrincipal = Depends(require_csrf),
+):
+    """
+    Send a message to the AI travel copilot for the current trip.
+    Returns the assistant reply, modification intent flag, and updated history.
+    Never modifies the itinerary automatically.
+    """
+    if not trip_id.strip() or len(trip_id) > 100:
+        raise HTTPException(status_code=422, detail="trip_id must be 1–100 characters.")
+
+    reachable, available = await _ollama_status()
+    if not reachable:
+        raise HTTPException(status_code=503, detail=f"Ollama is not reachable at {OLLAMA_HOST}.")
+    if not available:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Model '{OLLAMA_MODEL}' is not pulled. Run: ollama pull {OLLAMA_MODEL}",
+        )
+
+    store = TripStore()
+    prefs = store.get_preferences_for_owner(trip_id, principal.owner_id)
+    if prefs is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No saved preferences for this trip. Save preferences first.",
+        )
+
+    # Load existing conversation (last 20 turns = 10 exchanges)
+    history = store.get_copilot_history_for_owner(trip_id, principal.owner_id, limit=20)
+
+    # Load saved itinerary if available
+    itin_raw = store.get_itinerary_for_owner(trip_id, principal.owner_id)
+    itinerary_dict: dict | None = None
+    if itin_raw:
+        try:
+            import json as _json
+            itinerary_dict = _json.loads(itin_raw)
+        except Exception:
+            itinerary_dict = None
+
+    # Build system prompt
+    from .copilot import build_system_prompt, chat, _detect_modification_intent
+
+    system_prompt = await run_in_threadpool(
+        build_system_prompt,
+        prefs.destination,
+        prefs.start_date.isoformat(),
+        prefs.end_date.isoformat(),
+        prefs.travelers,
+        prefs.budget,
+        prefs.currency,
+        prefs.budget_style,
+        list(prefs.interests),
+        itinerary_dict,
+        request.weather_context,
+        request.feasibility_context,
+        request.logistics_context,
+    )
+
+    # Get AI reply
+    try:
+        reply = await run_in_threadpool(chat, system_prompt, history, request.message)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Copilot chat failed for trip %s", trip_id)
+        raise HTTPException(status_code=500, detail="Copilot failed to respond.") from exc
+
+    # Persist the exchange
+    store.append_copilot_turn(trip_id, request.message, reply, principal.owner_id)
+
+    # Reload history for response
+    updated_history = store.get_copilot_history_for_owner(trip_id, principal.owner_id, limit=20)
+
+    return CopilotResponse(
+        reply=reply,
+        suggests_modification=_detect_modification_intent(reply),
+        history=[CopilotTurn(role=t["role"], content=t["content"]) for t in updated_history],
+    )
+
+
+@app.get("/api/trips/{trip_id}/copilot/history", response_model=list[CopilotTurn])
+async def get_copilot_history(
+    trip_id: str,
+    principal: LocalPrincipal = Depends(require_local_owner),
+):
+    """Return the copilot conversation history for a trip."""
+    if not trip_id.strip() or len(trip_id) > 100:
+        raise HTTPException(status_code=422, detail="trip_id must be 1–100 characters.")
+    store = TripStore()
+    history = store.get_copilot_history_for_owner(trip_id, principal.owner_id, limit=40)
+    return [CopilotTurn(role=t["role"], content=t["content"]) for t in history]
+
+
+@app.delete("/api/trips/{trip_id}/copilot/history", status_code=204)
+async def clear_copilot_history(
+    trip_id: str,
+    principal: LocalPrincipal = Depends(require_csrf),
+):
+    """Clear the copilot conversation history for a trip."""
+    if not trip_id.strip() or len(trip_id) > 100:
+        raise HTTPException(status_code=422, detail="trip_id must be 1–100 characters.")
+    store = TripStore()
+    store.clear_copilot_history_for_owner(trip_id, principal.owner_id)
 
 
 # ---------------------------------------------------------------------------

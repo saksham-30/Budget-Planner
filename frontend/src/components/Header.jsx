@@ -13,6 +13,7 @@ export default function Header({ health }) {
 
   return (
     <header className="app-header">
+      <div className="app-header-inner">
       <div className="brand">
         <span className="brand-mark" aria-hidden="true">
           <PlaneIcon width={19} height={19} />
@@ -35,6 +36,7 @@ export default function Header({ health }) {
           <span className="status-dot" aria-hidden="true" />
           <span className="status-label">{status.label}</span>
         </span>
+      </div>
       </div>
     </header>
   )
