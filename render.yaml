@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: travel-budget-planner-demo
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/destinations
+    envVars:
+      - key: TRAVEL_PLANNER_INITIAL_PASSWORD
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: FX_ENABLED
+        value: "true"
+      - key: OLLAMA_HOST
+        value: http://127.0.0.1:11434
+      - key: OLLAMA_MODEL
+        value: qwen2.5:3b

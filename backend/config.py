@@ -13,6 +13,7 @@ load_dotenv()
 # Ollama
 OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+COOKIE_SECURE: bool = os.getenv("COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes"}
 
 # Agent safety cap — purely defensive, NOT the stopping mechanism.
 # The model decides when to stop tool-calling; this only prevents runaway loops.
