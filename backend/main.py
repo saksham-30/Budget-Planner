@@ -13,15 +13,13 @@ import json
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, suppress
-from pathlib import Path
 from typing import TypeVar
 
 import anyio
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import rates
@@ -1093,20 +1091,3 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content=ErrorResponse(error="Internal server error").model_dump(),
     )
-
-
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-FRONTEND_INDEX = FRONTEND_DIST / "index.html"
-if FRONTEND_INDEX.is_file():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="frontend-assets")
-
-    @app.get("/{requested_path:path}", include_in_schema=False)
-    async def serve_frontend(requested_path: str):
-        if requested_path == "api" or requested_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="Not found")
-        candidate = (FRONTEND_DIST / requested_path).resolve()
-        if candidate != FRONTEND_DIST and FRONTEND_DIST not in candidate.parents:
-            raise HTTPException(status_code=404, detail="Not found")
-        if candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(FRONTEND_INDEX)

@@ -127,15 +127,24 @@ Navigate to **http://127.0.0.1:5173** and try an example query.
 
 ---
 
-## Deploy a free demo to Render
+## Deploy the frontend to Vercel and backend to Render
 
-This repository includes a Render Blueprint and Dockerfile for serving the React app and FastAPI API from one origin.
+The frontend is a Vite static app deployed from `frontend/`. Its Vercel rewrites serve the SPA and proxy `/api/*` to the Render API, keeping browser requests same-origin for the app's cookie-based authentication.
 
-1. In Render, choose **New → Blueprint** and connect `saksham-30/Budget-Planner` on the `main` branch.
-2. When prompted for `TRAVEL_PLANNER_INITIAL_PASSWORD`, enter a private password with at least 12 characters. The app stores only its password hash.
-3. Deploy the Blueprint and open the generated `onrender.com` URL.
+### Render backend
 
-This free demo uses ephemeral storage, so saved trips and login sessions can reset when Render restarts the service. Ollama remains offline because the model runs locally; features that require Ollama will be unavailable in the hosted demo. The local planner and destination features continue to use the existing backend.
+1. In Render, create or update the Blueprint from `saksham-30/Budget-Planner` on `main` using the root `render.yaml`.
+2. Set `TRAVEL_PLANNER_INITIAL_PASSWORD` to a private password with at least 12 characters. The app stores only its password hash.
+3. Leave `COOKIE_SECURE=true` and deploy the backend service.
+
+### Vercel frontend
+
+1. Import `saksham-30/Budget-Planner` into Vercel.
+2. Set the project **Root Directory** to `frontend`; use the Vite defaults (`npm run build`, output `dist`).
+3. Deploy and note the production origin, for example `https://your-project.vercel.app`.
+4. In the Render service's Environment settings, set `TRAVEL_PLANNER_ALLOWED_ORIGINS` to that exact origin (no trailing slash), then redeploy the backend.
+
+The free Render service uses ephemeral storage, so saved trips and login sessions can reset when it restarts. Ollama remains offline because the model runs locally; features that require Ollama will be unavailable in the hosted demo. Render serves the API; Vercel serves the frontend.
 
 ## Running Tests
 

@@ -8,6 +8,7 @@ venv/
 node_modules/
 frontend/node_modules/
 frontend/dist/
+frontend/
 backend/data/*.sqlite3
 backend/data/*.sqlite3-*
 backend/data/exchange_rates.json
