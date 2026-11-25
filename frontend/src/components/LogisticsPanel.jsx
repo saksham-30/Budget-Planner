@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { csrfFetch } from '../auth.js'
+import { apiFetch } from '../api.js'
 import {
   AlertIcon,
   ArrowRightIcon,
@@ -197,7 +197,7 @@ export default function LogisticsPanel({ itinerary, onDataLoad }) {
         budget_style: config.budget_style || 'moderate',
         accommodation_preference: config.accommodation_preference || 'hotel',
       })
-      const res = await csrfFetch(
+      const res = await apiFetch(
         `${API_BASE}/logistics/${encodeURIComponent(config.destination)}?${params}`
       )
       if (!res.ok) throw new Error(`Logistics data unavailable (${res.status})`)

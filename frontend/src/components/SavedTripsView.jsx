@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { csrfFetch } from '../auth.js'
+import { apiFetch } from '../api.js'
 import { MapIcon, ClockFastIcon, TagIcon, ArrowRightIcon, RefreshIcon, AlertIcon } from './Icons.jsx'
 import { DESTINATIONS } from '../data/destinations.js'
 
@@ -35,7 +35,7 @@ export default function SavedTripsView({ onOpenTrip }) {
     setLoading(true)
     setError('')
     try {
-      const response = await csrfFetch(`${API_BASE}/trips`)
+      const response = await apiFetch(`${API_BASE}/trips`)
       if (!response.ok) throw new Error(`Could not load saved trips (${response.status}).`)
       const data = await response.json()
       if (Array.isArray(data)) setTrips(data)

@@ -7,7 +7,6 @@ import ExplorePage from './components/ExplorePage.jsx'
 import SavedTripsView from './components/SavedTripsView.jsx'
 import SavedPlacesView from './components/SavedPlacesView.jsx'
 import ItineraryBuilder from './components/ItineraryBuilder.jsx'
-import { csrfFetch } from './auth.js'
 import { getCurrentMonth } from './data/seasonalUtils.js'
 
 const API_BASE = '/api'
@@ -31,61 +30,11 @@ const OFFLINE_HEALTH = {
 export default function App() {
   const [activeView, setActiveView]           = useState('home')
   const [health, setHealth]                   = useState(null)
-  const [auth, setAuth]                       = useState('checking')
-  const [authError, setAuthError]             = useState('')
-  const [password, setPassword]               = useState('')
   const [prefillDestination, setPrefillDestination] = useState('')
   const [itineraryDestination, setItineraryDestination] = useState('')
   const [exploreCategory, setExploreCategory] = useState('all')
   const [exploreMonth, setExploreMonth]       = useState(getCurrentMonth())
   const [travelMonth, setTravelMonth]         = useState(getCurrentMonth())
-
-  const refreshAuth = useCallback(async () => {
-    try {
-      const response = await csrfFetch(`${API_BASE}/auth/me`)
-      setAuth(
-        response.ok ? 'authenticated'
-        : response.status === 503 ? 'uninitialized'
-        : 'signed_out',
-      )
-    } catch {
-      setAuth('offline')
-    }
-  }, [])
-
-  useEffect(() => { refreshAuth() }, [refreshAuth])
-
-  useEffect(() => {
-    const handleExpiredSession = () => setAuth('signed_out')
-    window.addEventListener('travel-planner-auth-expired', handleExpiredSession)
-    return () => window.removeEventListener('travel-planner-auth-expired', handleExpiredSession)
-  }, [])
-
-  async function signIn(event) {
-    event.preventDefault()
-    setAuthError('')
-    try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ password }),
-      })
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}))
-        throw new Error(body.detail || 'Sign in failed.')
-      }
-      setPassword('')
-      setAuth('authenticated')
-    } catch (error) {
-      setAuthError(error.message || 'The backend could not be reached.')
-    }
-  }
-
-  async function signOut() {
-    await csrfFetch(`${API_BASE}/auth/logout`, { method: 'POST' })
-    setAuth('signed_out')
-  }
 
   useEffect(() => {
     const controller = new AbortController()
@@ -154,53 +103,7 @@ export default function App() {
 
       <Header health={health} />
 
-      {auth === 'authenticated' && (
-        <div className="auth-toolbar">
-          <span>Local planner session</span>
-          <button type="button" onClick={signOut}>Sign out</button>
-        </div>
-      )}
-
-      {auth !== 'authenticated' ? (
-        <main className="auth-gate">
-          {auth === 'checking' ? <p>Checking local session…</p> : (
-            <section className="panel-card auth-card">
-              <h1>
-                {auth === 'uninitialized'
-                  ? 'Set up local authentication'
-                  : 'Sign in to your planner'}
-              </h1>
-              {auth === 'uninitialized' ? (
-                <p>
-                  Initialize the local owner once from the project folder with{' '}
-                  <code>python -m backend.manage_auth</code>, then reload this page.
-                </p>
-              ) : auth === 'offline' ? (
-                <p>
-                  The backend is unavailable. Start it with{' '}
-                  <code>uvicorn backend.main:app</code>.
-                </p>
-              ) : (
-                <form onSubmit={signIn}>
-                  <label htmlFor="local-password">Local password</label>
-                  <input
-                    id="local-password"
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={event => setPassword(event.target.value)}
-                    required
-                  />
-                  <button type="submit">Sign in</button>
-                </form>
-              )}
-              {authError && <p role="alert">{authError}</p>}
-            </section>
-          )}
-        </main>
-      ) : (
-        <>
-          <nav
+      <nav
             className="view-switch"
             role="tablist"
             aria-label="Application views"
@@ -290,9 +193,7 @@ export default function App() {
               <span className="footer-sep" aria-hidden="true" />
               <span className="footer-note">No bookings</span>
             </div>
-          </footer>
-        </>
-      )}
+      </footer>
     </div>
   )
 }

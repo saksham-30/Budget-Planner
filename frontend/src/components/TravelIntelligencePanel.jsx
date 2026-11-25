@@ -14,7 +14,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { csrfFetch } from '../auth.js'
+import { apiFetch } from '../api.js'
 import {
   AlertIcon,
   CalendarCheckIcon,
@@ -88,7 +88,7 @@ function WeatherSection({ destination, startDate, endDate, onDataLoad }) {
     setLoading(true)
     setError('')
     try {
-      const res = await csrfFetch(
+      const res = await apiFetch(
         `${API_BASE}/weather/${encodeURIComponent(destination)}?start_date=${startDate}&end_date=${endDate}`
       )
       if (!res.ok) throw new Error(`Weather unavailable (${res.status})`)
@@ -176,7 +176,7 @@ function PoiSection({ destination }) {
     setLoading(true)
     setError('')
     try {
-      const res = await csrfFetch(`${API_BASE}/poi/${encodeURIComponent(destination)}`)
+      const res = await apiFetch(`${API_BASE}/poi/${encodeURIComponent(destination)}`)
       if (!res.ok) throw new Error(`POI data unavailable (${res.status})`)
       setData(await res.json())
       loadedRef.current = true
@@ -272,7 +272,7 @@ function FeasibilitySection({ itinerary, onDataLoad }) {
     setLoading(true)
     setError('')
     try {
-      const res = await csrfFetch(`${API_BASE}/itinerary/feasibility`, {
+      const res = await apiFetch(`${API_BASE}/itinerary/feasibility`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itinerary }),

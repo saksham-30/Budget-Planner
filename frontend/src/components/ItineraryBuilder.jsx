@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
-import { csrfFetch } from '../auth.js'
+import { apiFetch } from '../api.js'
 import { DESTINATIONS } from '../data/destinations.js'
 import TravelIntelligencePanel from './TravelIntelligencePanel.jsx'
 import LogisticsPanel from './LogisticsPanel.jsx'
@@ -578,7 +578,7 @@ function AIModifyPanel({ tripId, itinerary, onPreview, onClose, intelligenceCont
         current_itinerary: itinerary,  // pass in-memory doc so modify works before first save
         intelligence_context: intelligenceContext || null,
       }
-      const res = await csrfFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/itinerary/modify`, {
+      const res = await apiFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/itinerary/modify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -723,7 +723,7 @@ export default function ItineraryBuilder({ prefillDestination, initialTripId }) 
     if (!initialTripId) return
     const load = async () => {
       try {
-        const res = await csrfFetch(`${API_BASE}/trips/${encodeURIComponent(initialTripId)}/itinerary`)
+        const res = await apiFetch(`${API_BASE}/trips/${encodeURIComponent(initialTripId)}/itinerary`)
         if (res.ok) {
           const existing = await res.json()
           itineraryDispatch({ type: 'SET', doc: existing })
@@ -769,7 +769,7 @@ export default function ItineraryBuilder({ prefillDestination, initialTripId }) 
       hard_constraints: [],
     }
     try {
-      await csrfFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/preferences`, {
+      await apiFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/preferences`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(prefs),
@@ -777,7 +777,7 @@ export default function ItineraryBuilder({ prefillDestination, initialTripId }) 
     } catch { /* non-fatal — itinerary generation can proceed */ }
 
     try {
-      const res = await csrfFetch(`${API_BASE}/itinerary/generate`, {
+      const res = await apiFetch(`${API_BASE}/itinerary/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),
@@ -800,7 +800,7 @@ export default function ItineraryBuilder({ prefillDestination, initialTripId }) 
     if (!doc) return
     setSaveStatus('saving')
     try {
-      const res = await csrfFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/itinerary`, {
+      const res = await apiFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/itinerary`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itinerary: doc }),

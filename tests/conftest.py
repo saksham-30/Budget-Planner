@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from backend import auth, main
+from backend import main, public_access
 
 TEST_OWNER = "test-owner"
 
@@ -29,10 +29,10 @@ def register_test_trip(store, trip_id=None):
 
 @pytest.fixture
 def allow_local_owner():
-    principal = auth.LocalPrincipal(TEST_OWNER, "test-session-hash", "test-csrf-hash")
+    principal = public_access.LocalPrincipal(TEST_OWNER, "test-session-hash", "test-csrf-hash")
     previous = main.app.dependency_overrides.copy()
-    main.app.dependency_overrides[auth.require_local_owner] = lambda: principal
-    main.app.dependency_overrides[auth.require_csrf] = lambda: principal
+    main.app.dependency_overrides[public_access.require_local_owner] = lambda: principal
+    main.app.dependency_overrides[public_access.require_csrf] = lambda: principal
     try:
         yield principal
     finally:

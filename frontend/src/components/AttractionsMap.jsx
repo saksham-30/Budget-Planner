@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { csrfFetch } from '../auth.js'
+import { apiFetch } from '../api.js'
 import { buildAttractionItems, buildMapViewport, formatAttractionCategory, validLatLng } from './attractionsMapData.js'
 
 const API_BASE = '/api'
@@ -96,7 +96,7 @@ export default function AttractionsMap({ destination }) {
     const controller = new AbortController()
     setPoiState({ key: destinationKey, loading: true, response: null, error: '' })
 
-    csrfFetch(`${API_BASE}/poi/${encodeURIComponent(destination.name)}`, { signal: controller.signal })
+    apiFetch(`${API_BASE}/poi/${encodeURIComponent(destination.name)}`, { signal: controller.signal })
       .then(async response => {
         if (!response.ok) throw new Error(`Nearby places unavailable (${response.status})`)
         return response.json()

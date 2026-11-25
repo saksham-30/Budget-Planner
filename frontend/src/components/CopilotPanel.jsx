@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { csrfFetch } from '../auth.js'
+import { apiFetch } from '../api.js'
 import {
   AlertIcon,
   BotIcon,
@@ -99,7 +99,7 @@ export default function CopilotPanel({
     if (!tripId) return
     setLoadingHistory(true)
     try {
-      const res = await csrfFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/copilot/history`)
+      const res = await apiFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/copilot/history`)
       if (res.ok) {
         const data = await res.json()
         setHistory(Array.isArray(data) ? data : [])
@@ -134,7 +134,7 @@ export default function CopilotPanel({
         feasibility_context: feasibilityContext || null,
         logistics_context:   logisticsContext   || null,
       }
-      const res = await csrfFetch(
+      const res = await apiFetch(
         `${API_BASE}/trips/${encodeURIComponent(tripId)}/copilot`,
         {
           method: 'POST',
@@ -179,7 +179,7 @@ export default function CopilotPanel({
   const clearHistory = async () => {
     if (!tripId) return
     try {
-      await csrfFetch(
+      await apiFetch(
         `${API_BASE}/trips/${encodeURIComponent(tripId)}/copilot/history`,
         { method: 'DELETE' },
       )

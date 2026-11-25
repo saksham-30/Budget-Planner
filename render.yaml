@@ -7,10 +7,6 @@ services:
     dockerContext: .
     healthCheckPath: /api/destinations
     envVars:
-      - key: TRAVEL_PLANNER_INITIAL_PASSWORD
-        sync: false
-      - key: COOKIE_SECURE
-        value: "true"
       - key: FX_ENABLED
         value: "true"
       - key: OLLAMA_HOST

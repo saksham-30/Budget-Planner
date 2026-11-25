@@ -521,9 +521,10 @@ class TestBackwardCompatibility:
         assert is_supported("INR")
         assert is_supported("USD")
 
-    def test_auth_module_unchanged(self):
-        from backend.auth import router, require_csrf, require_local_owner
-        assert router is not None
+    def test_public_access_dependencies_are_available(self):
+        from backend.public_access import require_csrf, require_local_owner
+        assert require_csrf is not None
+        assert require_local_owner is not None
 
     def test_modify_request_without_intel_field_valid(self):
         """Pre-5.1 callers that omit intelligence_context must still validate."""

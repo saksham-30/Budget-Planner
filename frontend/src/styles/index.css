@@ -2967,14 +2967,6 @@ button {
     scroll-behavior: auto !important;
   }
 }
-.auth-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 1rem; max-width: 1180px; margin: 0 auto; padding: .75rem 1.25rem; color: var(--ink-soft); }
-.auth-toolbar button, .auth-card button { border: 0; border-radius: 999px; padding: .65rem 1rem; background: var(--forest); color: white; font: inherit; cursor: pointer; }
-.auth-gate { display: grid; place-items: center; min-height: 55vh; padding: 2rem 1rem; }
-.auth-card { width: min(100%, 30rem); padding: 2rem; }
-.auth-card h1 { margin-top: 0; }
-.auth-card form { display: grid; gap: .8rem; }
-.auth-card input { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: .6rem; padding: .8rem; font: inherit; }
-.auth-card [role="alert"] { color: #b42318; }
 
 /* -----------------------------------------------------------
    Phase 1 — Travel Website Extension
@@ -7392,7 +7384,6 @@ button {
 .view-switch-hint { font-size: 0.64rem; white-space: nowrap; }
 .app-body:not(.app-body-home) { padding-top: 2rem; }
 .app-footer { justify-content: center; padding-inline: 1.25rem; background: var(--paper-raised); }
-.auth-toolbar { width: min(100% - 2.5rem, 1180px); }
 
 @media (max-width: 1000px) {
   .view-switch-hint { display: none; }

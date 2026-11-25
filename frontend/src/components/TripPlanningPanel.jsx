@@ -21,7 +21,7 @@ import {
   XIcon,
 } from './Icons.jsx'
 import { createTripRequestLifecycle, readPlanStream } from './tripRequestLifecycle.js'
-import { csrfFetch } from '../auth.js'
+import { apiFetch } from '../api.js'
 
 const API_BASE = '/api'
 const THREAD_KEY = 'travel-planner-thread-id'
@@ -576,7 +576,7 @@ export default function TripPlanningPanel({ prefillDestination }) {
 
   const refreshRecentTrips = useCallback(async () => {
     try {
-      const response = await csrfFetch(`${API_BASE}/trips`)
+      const response = await apiFetch(`${API_BASE}/trips`)
       if (!response.ok) return
       const values = await response.json()
       if (Array.isArray(values)) setRecentTrips(values)
@@ -609,7 +609,7 @@ export default function TripPlanningPanel({ prefillDestination }) {
 
   useEffect(() => {
     let cancelled = false
-    csrfFetch(`${API_BASE}/destinations`)
+    apiFetch(`${API_BASE}/destinations`)
       .then(async response => {
         if (!response.ok) throw new Error('unavailable')
         return response.json()
@@ -628,7 +628,7 @@ export default function TripPlanningPanel({ prefillDestination }) {
 
     async function restoreThread() {
       try {
-        const response = await csrfFetch(
+        const response = await apiFetch(
           `${API_BASE}/trips/${encodeURIComponent(tripId)}/preferences`,
           { signal: request.signal },
         )
@@ -643,7 +643,7 @@ export default function TripPlanningPanel({ prefillDestination }) {
         if (!request.isCurrent()) return
         setPreferences(toPreferenceForm(saved))
 
-        const planResponse = await csrfFetch(
+        const planResponse = await apiFetch(
           `${API_BASE}/trips/${encodeURIComponent(tripId)}/plan`,
           { signal: request.signal },
         )
@@ -685,7 +685,7 @@ export default function TripPlanningPanel({ prefillDestination }) {
     setStages([])
     threadRef.current.restore = false
     try {
-      const preferencesResponse = await csrfFetch(
+      const preferencesResponse = await apiFetch(
         `${API_BASE}/trips/${encodeURIComponent(id)}/preferences`,
         { signal: request.signal },
       )
@@ -696,7 +696,7 @@ export default function TripPlanningPanel({ prefillDestination }) {
       setPreferences(toPreferenceForm(savedPreferences))
       setTripId(id)
       localStorage.setItem(THREAD_KEY, id)
-      const planResponse = await csrfFetch(
+      const planResponse = await apiFetch(
         `${API_BASE}/trips/${encodeURIComponent(id)}/plan`,
         { signal: request.signal },
       )
@@ -732,7 +732,7 @@ export default function TripPlanningPanel({ prefillDestination }) {
     setError('')
     setStages([])
     try {
-      const response = await csrfFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/plan/stream`, {
+      const response = await apiFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/plan/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: message }),
@@ -861,7 +861,7 @@ export default function TripPlanningPanel({ prefillDestination }) {
         interests: toList(preferences.interests),
       }
 
-      const savedResponse = await csrfFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/preferences`, {
+      const savedResponse = await apiFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/preferences`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -873,7 +873,7 @@ export default function TripPlanningPanel({ prefillDestination }) {
         throw new Error(detail.detail || 'Trip preferences could not be saved.')
       }
 
-      const response = await csrfFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/plan/stream`, {
+      const response = await apiFetch(`${API_BASE}/trips/${encodeURIComponent(tripId)}/plan/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query.trim() }),

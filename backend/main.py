@@ -59,12 +59,11 @@ from .fallback import reconcile_agent_result
 from .tracing import build_trace, extract_structured_data
 from .persistence import PersistenceError, TripStore
 from .rag import DestinationCostGuide
-from .auth import (
+from .public_access import (
     LocalPrincipal,
     initialize_deployment_owner,
     require_csrf,
     require_local_owner,
-    router as auth_router,
 )
 
 logger = logging.getLogger(__name__)
@@ -161,11 +160,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(auth_router)
 
 
 # ---------------------------------------------------------------------------
